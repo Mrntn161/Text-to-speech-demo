@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Text-to-Speech Demo</title>
+    <title>Text-to-Speech</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css">
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,82 +17,480 @@
             align-items: center;
             height: 100vh;
             background: #f4f4f4;
-            margin: 0;
         }
+
         .container {
+            width: 80%;
+            max-width: 700px;
             background: white;
-            padding: 20px;
+            padding: 30px;
             border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            width: 300px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
+
         textarea {
             width: 100%;
-            height: 100px;
+            height: 120px;
+            font-size: 16px;
             padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid #ddd;
+            margin-top: 10px;
+            border: 1px solid #ccc;
             border-radius: 5px;
-            resize: none;
         }
-        select, button {
+
+        select,
+        button {
             width: 100%;
             padding: 10px;
-            margin-bottom: 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
             font-size: 16px;
+            margin-top: 10px;
+            cursor: pointer;
         }
-        select {
-            background: #fff;
-            border: 1px solid #ddd;
-        }
+
         button {
             background: #007bff;
             color: white;
             font-weight: bold;
+            border: none;
+            border-radius: 5px;
         }
+
         button:hover {
             background: #0056b3;
         }
     </style>
 </head>
+
 <body>
 
-<div class="container">
-    <h2>Text-to-Speech</h2>
-    <textarea id="text" placeholder="Type something..."></textarea>
-    <select id="voices"></select>
-    <button onclick="speakText()">Play</button>
-    <button onclick="loadVoices()">Load Voices</button>
-</div>
+    <div class="container">
+        <h2>Text-to-Speech (Edge TTS)</h2>
+        <textarea id="text" placeholder="Type something..."></textarea>
+        <select id="voices" style="width: 100%;"></select>
+        <button onclick="speakText()">Play</button>
+        <button onclick="copyVoice()">Copy Voice</button>
+    </div>
 
-<script>
-    function loadVoices() {
-        let voicesDropdown = document.getElementById("voices");
-        voicesDropdown.innerHTML = "";
-        let voices = speechSynthesis.getVoices();
-        voices.forEach(voice => {
-            let option = document.createElement("option");
-            option.value = voice.name;
-            option.textContent = voice.name + (voice.default ? " (Default)" : "");
-            voicesDropdown.appendChild(option);
+    <script>
+        function fetchVoices() {
+            var TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+            var VOICES_URL = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=" + TRUSTED_CLIENT_TOKEN;
+
+            fetch(VOICES_URL)
+                .then(res => res.json())
+                .then(data => {
+                    const voicesDropdown = $("#voices");
+                    voicesDropdown.empty(); // Clear previous entries
+
+                    const voicesList = data.map(d => {
+                        return {
+                            id: d.ShortName,
+                            text: `${d.ShortName} - ${d.Locale} (${d.Gender})`
+                        };
+                    });
+
+                    voicesDropdown.select2({
+                        data: voicesList,
+                        placeholder: "Search for a voice...",
+                        allowClear: true
+                    });
+                })
+                .catch(error => console.error("Error fetching voices:", error));
+        }
+
+        function speakText() {
+            const text = document.getElementById("text").value.trim();
+            const selectedVoice = document.getElementById("voices").value;
+
+            if (!text) {
+                alert("Please enter text to speak.");
+                return;
+            }
+            if (!selectedVoice) {
+                alert("Please select a voice first.");
+                return;
+            }
+            textToSpeech(text, { "voice": selectedVoice })
+
+        }
+
+        function copyVoice() {
+            const selectedVoice = $("#voices").select2("data")[0]?.text || "";
+            if (!selectedVoice) {
+                alert("Please select a voice first.");
+                return;
+            }
+            navigator.clipboard.writeText(selectedVoice).then(() => {
+                alert("Voice copied: " + selectedVoice);
+            }).catch(err => {
+                console.error("Failed to copy text:", err);
+            });
+        }
+
+        $(document).ready(function () {
+            fetchVoices(); // Load voices on page load
         });
-    }
 
-    function speakText() {
-        let text = document.getElementById("text").value;
-        let selectedVoice = document.getElementById("voices").value;
-        let utterance = new SpeechSynthesisUtterance(text);
-        let voices = speechSynthesis.getVoices();
-        utterance.voice = voices.find(voice => voice.name === selectedVoice);
-        speechSynthesis.speak(utterance);
-    }
+        let textToSpeech = async (text, config = {}) => {
+            let isRun = (() => {
+                let nameStore = `textToSpeech`
+                const now = Date.now();
+                const lastCall = parseInt(localStorage.getItem(nameStore) || '0', 10);
 
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-</script>
+                if (now - lastCall < 1000) {
+                    return false;
+                }
+
+                localStorage.setItem(nameStore, now.toString());
+                return true;
+            })();
+            if (!isRun) return
+            try {
+                text = removeHtmlTags(text);
+                let voice = "en-US-AndrewMultilingualNeural"
+                let rate = "5%"
+                if (config && config.voice) voice = config.voice.split(" ")[0]
+                if (config && config.rate) rate = config.rate
+                let wordNumb = text.trim().split(/\s+/).filter(word => word.length > 0).length
+                let urls = []
+                function removeHtmlTags(htmlString) {
+                    // Create a temporary element
+                    const tempElement = document.createElement('div');
+
+                    // Set the HTML content
+                    tempElement.innerHTML = htmlString;
+                    if (tempElement.getElementsByClassName("silence").length !== 0) {
+                        let s = tempElement.getElementsByClassName("silence")
+                        for (let e of s) {
+                            e.innerHTML = ""
+                        }
+
+                    }
+
+                    // Get the text content without HTML tags
+                    return tempElement.innerText
+                }
+                if (wordNumb < 20) {
+
+                    const emojiRegex = /([\p{Emoji_Presentation}|\p{Extended_Pictographic}]|\u200d|\uFE0F)/gu;
+                    text = text.replace(emojiRegex, '');
+                    text = text.replace(/\"/g, "\n\"")
+                    text = text.replace(/\(/g, "\n\(").replace(/\)/g, "\)\n")
+                    urls = [(await getURL(text, voice))]
+                    let audioElement = document.getElementById("audio-tts")
+                    if (!audioElement) {
+                        audioElement = document.createElement('audio');
+                        audioElement.setAttribute("id", "audio-tts")
+                    }
+                    audioElement.src = urls[0]
+                    audioElement.play()
+
+                } else {
+                    let chunks = splitTextIntoChunks(text)
+                    chunks = chunks.map(chunk => {
+                        const emojiRegex = /([\p{Emoji_Presentation}|\p{Extended_Pictographic}]|\u200d|\uFE0F)/gu;
+                        chunk = chunk.replace(emojiRegex, '');
+                        chunk = chunk.replace(/\"/g, "\n\"")
+                        chunk = chunk.replace(/\(/g, "\n\(").replace(/\)/g, "\)\n")
+                        return chunk
+                    })
+
+                    let audioElement = document.getElementById("audio-tts")
+                    if (!audioElement) {
+                        audioElement = document.createElement('audio');
+                        audioElement.setAttribute("id", "audio-tts")
+                    }
+                    let length = 0
+                    audioElement.addEventListener('loadedmetadata', function () {
+                        length = audioElement.duration * 1000;
+                    });
+                    for (let chunk of chunks) {
+                        let timeGetURL = 0;
+                        const startTime = performance.now();
+                        let url = await getURL(chunk, voice);
+                        const endTime = performance.now();
+                        timeGetURL = endTime - startTime;
+                        let waitTime = length + 100 - 500 - timeGetURL > 0 ? length + 100 - 500 - timeGetURL : 0
+                        await f.sleep(waitTime)
+                        audioElement.src = url
+                        urls.push(url)
+                        audioElement.play()
+                        await f.sleep(500)
+                    }
+                    return urls
+                    function splitTextIntoChunks(text, chunkSize = 20) {
+                        const sentences = text.match(/[^.!?]+[.!?]+/g) || [text]; // Split text into sentences
+                        const chunks = [];
+                        let currentChunk = [];
+                        let wordCount = 0;
+
+                        sentences.forEach(sentence => {
+                            const wordsInSentence = sentence.trim().split(/\s+/);
+                            const sentenceWordCount = wordsInSentence.length;
+
+                            // If adding the current sentence exceeds the chunkSize, push the current chunk
+                            if (wordCount + sentenceWordCount > chunkSize) {
+                                chunks.push(currentChunk.join(' ').trim());
+                                currentChunk = [];  // Start a new chunk
+                                wordCount = 0;      // Reset word count for the new chunk
+                            }
+
+                            // Add the sentence to the current chunk
+                            currentChunk.push(sentence.trim());
+                            wordCount += sentenceWordCount;
+                        });
+
+                        // Push the last chunk if there's any leftover
+                        if (currentChunk.length) {
+                            chunks.push(currentChunk.join(' ').trim());
+                        }
+
+                        return chunks;
+                    }
+                }
+                return urls
+            } catch (e) {
+                chatbot.bot(`Error: \n${e.message}`)
+            }
+
+        }
+        async function getURL(text, voice) {
+            try {
+                let c = { "voice": voice }
+                await h(text, c)
+                return c.url
+                async function h(text, config = {}) {
+                    let voice = "en-US-AndrewMultilingualNeural"
+                    let rate = "5%"
+                    if (config && config.voice) voice = config.voice.split(" ")[0]
+                    if (config && config.rate) rate = config.rate
+                    let socket = null;
+                    let ttsText = null;
+                    let ttsWindow = null;
+                    let ttsError = false;
+                    let ttsAudio = new Audio("");
+                    function create_edge_TTS({ voice = "zh-CN-XiaoxiaoNeural", timeout = 15, auto_reconnect = true } = {}) {
+                        const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+                        const VOICES_URL = `https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=${TRUSTED_CLIENT_TOKEN}`;
+                        const SYNTH_URL = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}`;
+                        const BINARY_DELIM = "Path:audio\r\n";
+                        const VOICE_LANG_REGEX = /\w{2}-\w{2}/;
+
+                        let _outputFormat = "audio-24khz-48kbitrate-mono-mp3";
+                        let _voiceLocale = 'zh-CN';
+                        let _voice = voice;
+                        const _queue = { message: [], url_resolve: {}, url_reject: {} };
+                        let ready = false;
+
+
+                        function _SSMLTemplate(input, rate = "5%") {
+                            return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${_voiceLocale}">
+                            <voice name="${_voice}">
+                                <prosody rate="${rate}">
+                                    ${input}
+                                </prosody>
+                            </voice>
+                        </speak>`;
+                        }
+                        function uuidv4() {
+                            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+                                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+                            );
+                        }
+
+                        create_new_ws();
+
+                        function setFormat(format) {
+                            if (format) {
+                                _outputFormat = format;
+                            }
+                            socket.send(`Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n
+                            {
+                                "context": {
+                                    "synthesis": {
+                                        "audio": {
+                                            "metadataoptions": {
+                                                "sentenceBoundaryEnabled": "false",
+                                                "wordBoundaryEnabled": "false"
+                                            },
+                                            "outputFormat": "${_outputFormat}" 
+                                        }
+                                    }
+                                }
+                            }
+                        `);
+                        }
+
+                        async function createURL(requestId) {
+                            let index_message = 0;
+                            for (let message of _queue.message) {
+                                const isbinary = message instanceof Blob;
+
+                                if (!isbinary) {
+                                    continue;
+                                }
+
+                                const data = await message.text();
+                                const Id = /X-RequestId:(.*?)\r\n/gm.exec(data)[1];
+
+                                if (Id !== requestId) {
+                                    continue;
+                                }
+
+                                if (data.charCodeAt(0) === 0x00 && data.charCodeAt(1) === 0x67 && data.charCodeAt(2) === 0x58) {
+                                    // Last (empty) audio fragment
+                                    const blob = new Blob(_queue[requestId], { 'type': 'audio/mp3' });
+                                    output = blob
+                                    _queue[requestId] = null;
+                                    const url = URL.createObjectURL(blob);
+                                    _queue.url_resolve[requestId](url);
+                                } else {
+                                    const index = data.indexOf(BINARY_DELIM) + BINARY_DELIM.length;
+                                    const audioData = message.slice(index);
+                                    _queue[requestId].push(audioData);
+                                    _queue.message[index_message] = null;
+                                }
+                                ++index_message;
+                            }
+                        }
+
+                        function onopen(event) {
+                            setFormat();
+                            ready = true;
+                        }
+
+                        async function onmessage(event) {
+                            const isbinary = event.data instanceof Blob;
+                            _queue.message.push(event.data)
+                            if (!isbinary) {
+                                const requestId = /X-RequestId:(.*?)\r\n/gm.exec(event.data)[1];
+                                if (event.data.includes("Path:turn.end")) {
+                                    createURL(requestId);
+                                }
+                            }
+                        }
+
+                        function onerror(event) {
+                            ready = false;
+                        }
+
+                        function onclose(event) {
+                            ready = false;
+                        }
+
+                        function addSocketListeners() {
+                            socket.addEventListener('open', onopen);
+                            socket.addEventListener('message', onmessage);
+                            socket.addEventListener('error', onerror);
+                            socket.addEventListener('close', onclose);
+                        }
+
+                        function create_new_ws() {
+                            try {
+                                if (ttsError) {
+                                    return;
+                                }
+
+                                socket = new WebSocket(SYNTH_URL);
+
+                                socket.onerror = function (event) {
+                                    ttsError = true;
+                                }
+
+                                addSocketListeners();
+                            } catch (e) {
+                                chatbot.bot(`Error: \n${e.message}`)
+                                console.error(e);
+                            }
+                        }
+
+                        let toStream = function (input) {
+                            let requestSSML = _SSMLTemplate(input, rate);
+                            // const requestId = uuidv4().replaceAll('-', '');
+                            const requestId = uuidv4().replace(/\-/g, "")
+                            const request = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n` + requestSSML.trim();
+
+                            _queue[requestId] = [];
+
+                            return new Promise((resolve, reject) => {
+                                _queue.url_resolve[requestId] = resolve, _queue.url_reject[requestId] = reject;
+
+                                if (!ready) {
+                                    if (auto_reconnect) {
+                                        create_new_ws();
+                                        socket.addEventListener('open', _ => socket.send(request));
+
+                                        setTimeout(_ => { if (!ready) reject('reconnect timeout') }, timeout * 1000);
+                                    }
+                                    else reject('socket error or timeout');
+                                } else {
+                                    socket.send(request)
+                                }
+                            });
+                        }
+
+                        async function play(input) {
+                            const url = await toStream(input);
+                            config.url = url
+                            return url
+                        }
+
+                        return new Promise((resolve, reject) => {
+                            setTimeout(_ => reject('socket open timeout'), timeout * 1000);
+                            // Connection opened
+                            socket.addEventListener('open', function (event) {
+                                resolve({
+                                    play,
+                                    toStream,
+                                    setVoice: (voice, locale) => {
+                                        _voice = voice;
+                                        if (!locale) {
+                                            const voiceLangMatch = VOICE_LANG_REGEX.exec(_voice);
+                                            if (!voiceLangMatch) {
+                                                throw new Error("Could not infer voiceLocale from voiceName!");
+                                            }
+                                            _voiceLocale = voiceLangMatch[0];
+                                        } else {
+                                            _voiceLocale = locale;
+                                        }
+                                    },
+                                    setFormat,
+                                    isReady: _ => ready
+                                })
+                            });
+                        });
+                    }
+                    await edgeTtsPlay(text, voice)
+
+                    async function edgeTtsPlay(text, voice = "en-US-AndrewMultilingualNeural") {
+                        if (text === undefined || text === null || text === '') {
+                            return;
+                        }
+
+                        if (ttsError) {
+                            return;
+                        }
+                        ttsText = text;
+                        const tts = await create_edge_TTS({ voice });
+                        try {
+                            let x = await tts.play(text);
+
+                        } catch (e) {
+                            chatbot.bot(`Error: \n${e.message}`)
+                            ttsError = true;
+
+                        }
+                    }
+
+                }
+            } catch (e) {
+                chatbot.bot(`Error: \n${e.message}`)
+                console.error(e)
+            }
+        }
+    </script>
 
 </body>
+
 </html>
